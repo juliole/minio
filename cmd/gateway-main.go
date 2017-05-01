@@ -122,7 +122,6 @@ EXAMPLES:
       $ export MINIO_ACCESS_KEY=accesskey
       $ export MINIO_SECRET_KEY=secretkey
       $ {{.HelpName}} mygcsprojectid
-
 `
 
 var (
@@ -223,9 +222,10 @@ func validateGatewayArguments(serverAddr, endpointAddr string) error {
 		return err
 	}
 
+	// This check is only needed on macOS.
 	if runtime.GOOS == "darwin" {
 		_, port := mustSplitHostPort(serverAddr)
-		// On macOS, if a process already listens on LOCALIPADDR:PORT, net.Listen() falls back
+		// On macOS, if a process already listens on LOCAL-IPADDR:PORT, net.Listen() falls back
 		// to IPv6 address i.e minio will start listening on IPv6 address whereas another
 		// (non-)minio process is listening on IPv4 of given port.
 		// To avoid this error situation we check for port availability only for macOS.
@@ -333,6 +333,9 @@ func gatewayMain(ctx *cli.Context, backendType gatewayBackend) {
 		fatalIf(registerWebRouter(router), "Unable to configure web browser")
 	}
 	registerGatewayAPIRouter(router, newObject)
+
+	// Add STS router.
+	registerSTSRouter(router)
 
 	var handlerFns = []HandlerFunc{
 		// Validate all the incoming paths.
