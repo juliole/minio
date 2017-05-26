@@ -151,6 +151,18 @@ func serverMain(ctx *cli.Context) {
 	// Init the error tracing module.
 	initError()
 
+	// Auth providers are set.
+	if len(serverConfig.Auth.GetAllAuthProviders()) > 0 {
+		globalIsAuthCreds = true
+	}
+
+	// Initialize global server credentials.
+	globalServerCreds = newServerCredentials()
+	fatalIf(globalServerCreds.Load(), "Unable to load sts credentials config.")
+
+	globalServerCreds.SetCredential(serverConfig.GetCredential())
+	fatalIf(globalServerCreds.Save(), "Unable to save sts credentials config.")
+
 	// Check and load SSL certificates.
 	var err error
 	globalPublicCerts, globalRootCAs, globalTLSCertificate, globalIsSSL, err = getSSLConfig()

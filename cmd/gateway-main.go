@@ -366,7 +366,20 @@ func gatewayMain(ctx *cli.Context, backendType gatewayBackend) {
 
 	}
 
-	globalHTTPServer = miniohttp.NewServer([]string{ctx.GlobalString("address")}, registerHandlers(router, handlerFns...), globalTLSCertificate)
+	// Auth providers are set.
+	if len(serverConfig.Auth.GetAllAuthProviders()) > 0 {
+		globalIsAuthCreds = true
+	}
+
+	// Initialize global server credentials.
+	globalServerCreds = newServerCredentials()
+	fatalIf(globalServerCreds.Load(), "Unable to load sts credentials config.")
+
+	globalServerCreds.SetCredential(serverConfig.GetCredential())
+	fatalIf(globalServerCreds.Save(), "Unable to save sts credentials config.")
+
+	globalHTTPServer = miniohttp.NewServer([]string{ctx.GlobalString("address")},
+		registerHandlers(router, handlerFns...), globalTLSCertificate)
 
 	// Start server, automatically configures TLS if certs are available.
 	go func() {
