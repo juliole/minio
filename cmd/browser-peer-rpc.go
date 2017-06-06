@@ -32,7 +32,7 @@ func (br *browserPeerAPIHandlers) Login(args *LoginRPCArgs, reply *LoginRPCReply
 	}
 
 	// Authenticate using JWT.
-	token, err := authenticateWeb(args.Username, args.Password)
+	token, err := authenticateJWT(args.Username, args.Password, defaultJWTExpiry)
 	if err != nil {
 		return err
 	}

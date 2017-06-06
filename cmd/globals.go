@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/crewjam/saml"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	miniohttp "github.com/minio/minio/pkg/http"
@@ -140,6 +141,10 @@ var (
 	globalPublicCerts        []*x509.Certificate
 	globalXLObjCacheDisabled bool
 	// Add new variable global values here.
+)
+
+var (
+	globalSAMLProvider saml.ServiceProvider
 )
 
 var (

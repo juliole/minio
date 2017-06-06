@@ -18,13 +18,10 @@ package cmd
 
 import (
 	"crypto/sha1"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
@@ -139,46 +136,10 @@ func (sts *stsAPIHandlers) AssumeRoleWithSAMLHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	samlResp, err := ParseSAMLResponse(r.PostForm.Get("SAMLAssertion"))
+	assertion, err := globalSAMLProvider.ParseResponse(r, nil)
 	if err != nil {
-		errorIf(err, "Unable to parse saml assertion.")
+		errorIf(err, "Unable to parse SAML response.")
 		writeSTSErrorResponse(w, ErrSTSMalformedPolicyDocument)
-		return
-	}
-
-	// Keep TLS config.
-	tlsConfig := &tls.Config{
-		RootCAs:            globalRootCAs,
-		InsecureSkipVerify: true,
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       tlsConfig,
-		},
-	}
-
-	resp, rerr := client.PostForm(samlResp.Destination, url.Values{
-		"SAMLResponse": {samlResp.origSAMLAssertion},
-	})
-	if rerr != nil {
-		errorIf(rerr, "Unable to validate saml assertion.")
-		writeSTSErrorResponse(w, ErrSTSMalformedPolicyDocument)
-		return
-	}
-
-	if resp.StatusCode >= http.StatusInternalServerError {
-		errorIf(errors.New(resp.Status), "Unable to validate saml assertion.")
-		writeSTSErrorResponse(w, ErrSTSIDPRejectedClaim)
 		return
 	}
 
@@ -214,7 +175,7 @@ func (sts *stsAPIHandlers) AssumeRoleWithSAMLHandler(w http.ResponseWriter, r *h
 	}
 
 	h := sha1.New()
-	io.WriteString(h, samlResp.Issuer.URL+"0000"+"myidp")
+	io.WriteString(h, assertion.Issuer.Value+"0000"+"myidp")
 	nq := base64.StdEncoding.EncodeToString(h.Sum(nil))
 
 	// Set the newly generated credentials.
@@ -228,11 +189,11 @@ func (sts *stsAPIHandlers) AssumeRoleWithSAMLHandler(w http.ResponseWriter, r *h
 	}
 
 	samlOutput := &AssumeRoleWithSAMLResult{
-		Credentials: cred,
-		// TODO
-		// Subject:       samlResp.Assertion.Subject.NameID.Value,
-		// SubjectType:   samlResp.Assertion.Subject.NameID.Format,
-		Issuer:        samlResp.Issuer.URL,
+		Audience:      assertion.Subject.SubjectConfirmations[0].SubjectConfirmationData.Recipient,
+		Credentials:   cred,
+		Subject:       assertion.Subject.NameID.Value,
+		SubjectType:   assertion.Subject.NameID.Format,
+		Issuer:        assertion.Issuer.Value,
 		NameQualifier: nq,
 	}
 

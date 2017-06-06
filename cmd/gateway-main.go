@@ -254,7 +254,8 @@ func azureGatewayMain(ctx *cli.Context) {
 	}
 
 	// Validate gateway arguments.
-	fatalIf(validateGatewayArguments(ctx.GlobalString("address"), ctx.Args().First()), "Invalid argument")
+	fatalIf(validateGatewayArguments(ctx.GlobalString("address"), ctx.Args().First()),
+		"Invalid address ‘%s’ in command line argument.", ctx.GlobalString("address"))
 
 	gatewayMain(ctx, azureBackend)
 }
@@ -266,7 +267,8 @@ func s3GatewayMain(ctx *cli.Context) {
 	}
 
 	// Validate gateway arguments.
-	fatalIf(validateGatewayArguments(ctx.GlobalString("address"), ctx.Args().First()), "Invalid argument")
+	fatalIf(validateGatewayArguments(ctx.GlobalString("address"), ctx.Args().First()),
+		"Invalid address ‘%s’ in command line argument.", ctx.GlobalString("address"))
 
 	gatewayMain(ctx, s3Backend)
 }

@@ -158,9 +158,7 @@ func newServerConfigV19() *serverConfigV19 {
 	srvCfg.Notify.Webhook["1"] = webhookNotify{}
 
 	// Make sure to initialize auth providers.
-	srvCfg.Auth.SAML = make(samlProviders)
-	srvCfg.Auth.SAML["1"] = samlProvider{}
-
+	srvCfg.Auth.SAML = samlProvider{}
 	return srvCfg
 }
 

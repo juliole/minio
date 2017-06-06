@@ -331,6 +331,7 @@ next:
 type LoginArgs struct {
 	Username string `json:"username" form:"username"`
 	Password string `json:"password" form:"password"`
+	OTP      string `json:"otp"      form:"otp"`
 }
 
 // LoginRep - login reply.

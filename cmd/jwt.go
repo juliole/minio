@@ -17,19 +17,15 @@
 package cmd
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/anaskhan96/soup"
 	jwtgo "github.com/dgrijalva/jwt-go"
 	jwtreq "github.com/dgrijalva/jwt-go/request"
-	"github.com/levigross/grequests"
 )
 
 const (
@@ -51,112 +47,6 @@ var (
 
 func getURL(u *url.URL) string {
 	return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.Path)
-}
-
-func getSAMLAssertion(username, password string, saml samlProvider) (string, error) {
-	httpSess := grequests.NewSession(nil)
-
-	u, err := url.Parse(saml.IDP)
-	if err != nil {
-		return "", err
-	}
-	v := url.Values{
-		"providerId": {saml.ProviderID},
-	}
-	u.RawQuery = v.Encode()
-
-	resp, err := httpSess.Get(u.String(), nil)
-	if err != nil {
-		return "", err
-	}
-
-	samlLogin := soup.HTMLParse(resp.String())
-	resp.Close()
-
-	payload := extractPayload(samlLogin)
-	payload["username"] = username
-	payload["password"] = password
-	resp, err = httpSess.Post(getURL(resp.RawResponse.Request.URL),
-		&grequests.RequestOptions{
-			Data:         payload,
-			UseCookieJar: true,
-		},
-	)
-	if err != nil {
-		return "", err
-	}
-
-	samlAssertion := soup.HTMLParse(resp.String())
-	resp.Close()
-
-	return extractSAMLAssertion(samlAssertion), nil
-}
-
-func authenticateJWTWithSAML(accessKey, secretKey string, expiry time.Duration, saml samlProvider) (string, error) {
-	samlAssertion, err := getSAMLAssertion(accessKey, secretKey, saml)
-	if err != nil {
-		return "", err
-	}
-
-	samlResp, err := ParseSAMLResponse(samlAssertion)
-	if err != nil {
-		return "", err
-	}
-
-	// Keep TLS config.
-	tlsConfig := &tls.Config{
-		RootCAs:            globalRootCAs,
-		InsecureSkipVerify: true,
-	}
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       tlsConfig,
-		},
-	}
-
-	resp, rerr := client.PostForm(samlResp.Destination, url.Values{
-		"SAMLResponse": {samlResp.origSAMLAssertion},
-	})
-	if rerr != nil {
-		return "", rerr
-	}
-
-	if resp.StatusCode >= http.StatusInternalServerError {
-		return "", errors.New(resp.Status)
-	}
-
-	expiryTime := UTCNow().Add(expiry)
-	cred, err := getNewCredentialWithExpiration(expiryTime)
-	if err != nil {
-		return "", err
-	}
-
-	utcNow := UTCNow()
-	token := jwtgo.NewWithClaims(jwtgo.SigningMethodHS512, jwtgo.MapClaims{
-		"exp": utcNow.Add(expiry).Unix(),
-		"iat": utcNow.Unix(),
-		"sub": cred.AccessKey,
-	})
-
-	// Set the newly generated credentials.
-	globalServerCreds.SetCredential(cred)
-
-	tokenStr, err := token.SignedString([]byte(cred.SecretKey))
-	if err != nil {
-		return "", err
-	}
-
-	return canonicalBrowserAuth(cred.AccessKey, tokenStr), nil
 }
 
 func authenticateJWT(accessKey, secretKey string, expiry time.Duration) (string, error) {
@@ -189,78 +79,36 @@ func authenticateJWT(accessKey, secretKey string, expiry time.Duration) (string,
 		return "", err
 	}
 
-	return canonicalBrowserAuth(accessKey, tokenStr), nil
+	canonicalAuth := func(accessKey, token string) string {
+		return fmt.Sprintf("%s:%s", accessKey, token)
+	}
+
+	return canonicalAuth(accessKey, tokenStr), nil
 }
 
 func authenticateNode(accessKey, secretKey string) (string, error) {
-	passedCredential, err := createCredential(accessKey, secretKey)
-	if err != nil {
-		return "", err
-	}
-
-	serverCred := serverConfig.GetCredential()
-	if serverCred.AccessKey != passedCredential.AccessKey {
-		return "", errInvalidAccessKeyID
-	}
-
-	if !serverCred.Equal(passedCredential) {
-		return "", errAuthentication
-	}
-
-	utcNow := UTCNow()
-	token := jwtgo.NewWithClaims(jwtgo.SigningMethodHS512, jwtgo.MapClaims{
-		"exp": utcNow.Add(defaultInterNodeJWTExpiry).Unix(),
-		"iat": utcNow.Unix(),
-		"sub": accessKey,
-	})
-
-	return token.SignedString([]byte(serverCred.SecretKey))
-}
-
-func canonicalBrowserAuth(accessKey, token string) string {
-	return fmt.Sprintf("%s:%s", accessKey, token)
+	return authenticateJWT(accessKey, secretKey, defaultInterNodeJWTExpiry)
 }
 
 func authenticateWeb(accessKey, secretKey string) (token string, err error) {
-	if !globalIsAuthCreds {
-		return authenticateJWT(accessKey, secretKey, defaultJWTExpiry)
-	}
-	sps := serverConfig.Auth.GetSAML()
-	for _, saml := range sps {
-		// FIXME: This can be slower and browser might look like it hung.
-		if saml.Enable {
-			token, err = authenticateJWTWithSAML(accessKey, secretKey, defaultJWTExpiry, saml)
-		}
-	}
-	return token, err
+	return authenticateJWT(accessKey, secretKey, defaultJWTExpiry)
 }
 
 func isAuthTokenValid(tokenStr string) bool {
-	_, tokenStr = extractAccessAndJWT(tokenStr)
-	jwtToken, err := jwtgo.ParseWithClaims(tokenStr, jwtgo.MapClaims{}, func(jwtToken *jwtgo.Token) (interface{}, error) {
-		if _, ok := jwtToken.Method.(*jwtgo.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", jwtToken.Header["alg"])
-		}
-		return []byte(serverConfig.GetCredential().SecretKey), nil
-	})
+	token, err := parseJWT(tokenStr)
 	if err != nil {
 		errorIf(err, "Unable to parse JWT token string")
 		return false
 	}
-	return jwtToken.Valid
+	return token.Valid
+}
+
+func isHTTPTokenValid(auth string) bool {
+	return isAuthTokenValid(auth)
 }
 
 func isHTTPRequestValid(req *http.Request) bool {
 	return webRequestAuthenticate(req) == nil
-}
-
-func isHTTPTokenValid(auth string) bool {
-	jwtToken, err := parseJWT(auth)
-	if err != nil {
-		errorIf(err, "Unable to parse JWT token string")
-		return false
-	}
-	return jwtToken.Valid
 }
 
 func extractAccessAndJWT(tok string) (accessKey string, jwtToken string) {
@@ -282,21 +130,24 @@ func parseFromRequest(req *http.Request) (token *jwtgo.Token, err error) {
 
 func parseJWT(auth string) (token *jwtgo.Token, err error) {
 	accessKey, tokenStr := extractAccessAndJWT(auth)
-	if accessKey == "" || tokenStr == "" {
+	if tokenStr == "" {
 		return nil, jwtreq.ErrNoTokenInRequest
 	}
 	return jwtgo.ParseWithClaims(tokenStr, jwtgo.MapClaims{}, func(jwtToken *jwtgo.Token) (interface{}, error) {
 		if _, ok := jwtToken.Method.(*jwtgo.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", jwtToken.Header["alg"])
 		}
-		cred := globalServerCreds.GetCredential(accessKey)
-		if cred.IsExpired() {
-			return nil, errInvalidAccessKeyID
+		if accessKey != "" {
+			cred := globalServerCreds.GetCredential(accessKey)
+			if cred.IsExpired() {
+				return nil, errInvalidAccessKeyID
+			}
+			if cred.AccessKey != accessKey {
+				return nil, errInvalidAccessKeyID
+			}
+			return []byte(cred.SecretKey), nil
 		}
-		if cred.AccessKey != accessKey {
-			return nil, errInvalidAccessKeyID
-		}
-		return []byte(cred.SecretKey), nil
+		return []byte(serverConfig.GetCredential().SecretKey), nil
 	})
 }
 

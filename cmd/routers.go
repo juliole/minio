@@ -83,6 +83,9 @@ func configureServerHandler(endpoints EndpointList) (http.Handler, error) {
 	// Add API router.
 	registerAPIRouter(mux)
 
+	// Add SAML router.
+	registerSAMLRouter(mux)
+
 	// Add STS router.
 	registerSTSRouter(mux)
 

@@ -1296,7 +1296,7 @@ func TestWebCheckAuthorization(t *testing.T) {
 	for _, rpcCall := range webRPCs {
 		args := &AuthRPCArgs{}
 		reply := &WebGenericRep{}
-		authorization := canonicalBrowserAuth(serverConfig.GetCredential().AccessKey, "fooauthorization")
+		authorization := fmt.Sprintf("%s:%s", serverConfig.GetCredential().AccessKey, "fooauthorization")
 		req, nerr := newTestWebRPCRequest("Web."+rpcCall, authorization, args)
 		if nerr != nil {
 			t.Fatalf("Test %s: Failed to create HTTP request: <ERROR> %v", rpcCall, nerr)
