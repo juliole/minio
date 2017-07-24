@@ -6,7 +6,7 @@ spec:
   type: NodePort
   ports:
     - port: 9008
-      targetPort: 9008
+      targetPort: 9000
       nodePort: 30098
       protocol: TCP
   selector:
