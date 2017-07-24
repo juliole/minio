@@ -4,7 +4,6 @@ metadata:
   name: datadirminio
   labels:
     app: minio-storage-claim
-    podindex: "0"
 spec:
   capacity:
     storage: 3Gi
